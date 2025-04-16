@@ -13,9 +13,9 @@ import tldextract
 # Set page title and layout
 st.set_page_config(page_title="Structured Contact Scraper", layout="wide")
 
-# Google Custom Search API key and configuration
+# Google Custom Search API key and configuration - hidden from frontend
 GOOGLE_API_KEY = "AIzaSyDu0b_wic-Am7mXFxBU4-xUr8Cj3ifG_Ao"
-GOOGLE_SEARCH_ENGINE_ID = "45687663363054394"  # Your Search Engine ID
+GOOGLE_SEARCH_ENGINE_ID = "45687663363054394"
 
 def is_valid_url(url):
     """Check if the URL is valid"""
@@ -51,48 +51,34 @@ def is_trash_email(email):
     return False
 
 def extract_indian_phones(text):
-    """Extract phone numbers, preferring Indian numbers (+91 or starting with 9,8,7,6)"""
+    """Extract only valid Indian phone numbers (+91 and starting with 9,8,7,6)"""
     # Pattern for international format with Indian country code
     indian_cc_pattern = r'(?:\+91|0091)[- ]?(\d{5}[- ]?\d{5}|\d{3}[- ]?\d{3}[- ]?\d{4}|\d{10})'
     
-    # Pattern for 10-digit Indian numbers (starting with 9,8,7,6)
-    indian_mobile_pattern = r'(?<!\d)(9|8|7|6)(\d{9})(?!\d)'
+    # Extract all potential Indian numbers with country code
+    indian_cc_matches = re.findall(indian_cc_pattern, text)
     
-    # Generic pattern for any 10-digit number
-    generic_pattern = r'(?<!\d)(\d{10})(?!\d)'
-    
-    # First try to find Indian numbers with country code
-    indian_cc_phones = re.findall(indian_cc_pattern, text)
-    
-    # Then try to find 10-digit Indian mobile numbers
-    indian_mobiles = re.findall(indian_mobile_pattern, text)
-    indian_mobiles = [m[0] + m[1] for m in indian_mobiles]
-    
-    # Finally try to find any 10-digit number
-    generic_phones = re.findall(generic_pattern, text)
-    
-    # Combine results with preference order (Indian CC > Indian mobile > generic)
-    all_phones = []
-    
-    # Add Indian CC phones with proper formatting
-    for phone in indian_cc_phones:
+    valid_phones = []
+    for phone in indian_cc_matches:
         # Clean phone number of spaces and hyphens
         cleaned = re.sub(r'[- ]', '', phone)
         if len(cleaned) >= 10:  # Ensure we have at least 10 digits
             last_10 = cleaned[-10:]  # Get the last 10 digits
-            all_phones.append(f"+91 {last_10}")
+            # Check if the first digit is 9, 8, 7, or 6
+            if last_10[0] in ['9', '8', '7', '6']:
+                valid_phones.append(f"+91 {last_10}")
     
-    # Add Indian mobile phones
-    for phone in indian_mobiles:
-        if phone not in [p[-10:] for p in all_phones]:  # Avoid duplicates
-            all_phones.append(f"+91 {phone}")
+    # Pattern for 10-digit Indian numbers (starting with 9,8,7,6)
+    indian_mobile_pattern = r'(?<!\d)(9|8|7|6)(\d{9})(?!\d)'
     
-    # Add generic phones
-    for phone in generic_phones:
-        if phone not in [p[-10:] for p in all_phones]:  # Avoid duplicates
-            all_phones.append(phone)
+    # Extract 10-digit Indian mobile numbers
+    indian_mobiles = re.findall(indian_mobile_pattern, text)
+    for m in indian_mobiles:
+        phone = m[0] + m[1]  # Combine first digit and remaining 9 digits
+        if f"+91 {phone}" not in valid_phones:  # Avoid duplicates
+            valid_phones.append(f"+91 {phone}")
     
-    return all_phones
+    return valid_phones
 
 def extract_emails(text):
     """Extract valid emails from text"""
@@ -356,9 +342,91 @@ def scrape_url(url, session, visited_urls):
         st.error(f"Error scraping {url}: {str(e)}")
         return None
 
+def get_google_maps_urls(keyword, location, num_results=5):
+    """Get URLs from Google Maps search"""
+    search_query = f"{keyword} in {location} google maps"
+    urls = search_by_keyword(search_query, num_results)
+    # Filter for maps URLs
+    maps_urls = [url for url in urls if "google.com/maps" in url]
+    return maps_urls
+
+def get_targeted_urls(keyword):
+    """Get URLs targeted for specific industries based on keyword"""
+    keyword_lower = keyword.lower()
+    targeted_urls = []
+    
+    # Local Services, Small Businesses
+    if any(term in keyword_lower for term in ["salon", "shop", "store", "local", "business", "restaurant", "cafe", "bakery", "spa", "gym"]):
+        targeted_urls.extend([
+            "https://www.justdial.com/",
+            "https://www.sulekha.com/",
+            "https://www.nearmetrade.com/",
+            "https://www.clickindia.com/",
+            "https://www.yellowpages.in/"
+        ])
+    
+    # Schools, Colleges, Institutes
+    elif any(term in keyword_lower for term in ["school", "college", "university", "institute", "academy", "education", "coaching"]):
+        targeted_urls.extend([
+            "https://www.icbse.com/",
+            "https://www.schoolmykids.com/",
+            "https://www.edustoke.com/",
+            "https://www.indiastudychannel.com/"
+        ])
+    
+    # Micro Influencers, Creators
+    elif any(term in keyword_lower for term in ["influencer", "creator", "youtuber", "blogger", "vlogger", "content"]):
+        targeted_urls.extend([
+            "https://starngage.com/",
+            "https://influence.co/"
+        ])
+    
+    # Ad Agencies, Marketing Services
+    elif any(term in keyword_lower for term in ["agency", "marketing", "advertising", "digital", "media", "seo", "ppc"]):
+        targeted_urls.extend([
+            "https://www.clutch.co/",
+            "https://www.sortlist.com/",
+            "https://www.goodfirms.co/",
+            "https://upcity.com/",
+            "https://www.designrush.com/"
+        ])
+    
+    # Editing Agencies, Creative Studios
+    elif any(term in keyword_lower for term in ["edit", "studio", "production", "creative", "design", "video", "film", "photography"]):
+        targeted_urls.extend([
+            "https://www.behance.net/",
+            "https://dribbble.com/",
+            "https://www.productionhub.com/",
+            "https://www.fiverr.com/"
+        ])
+    
+    # Business Owners, Freelancers, Startups
+    elif any(term in keyword_lower for term in ["startup", "founder", "entrepreneur", "freelancer", "ceo", "owner", "business"]):
+        targeted_urls.extend([
+            "https://www.startupindia.gov.in/",
+            "https://angel.co/",
+            "https://www.crunchbase.com/",
+            "https://yourstory.com/"
+        ])
+    
+    return targeted_urls
+
 def search_by_keyword(keyword, num_results=10):
     """Return a list of URLs from Google search based on keyword"""
     urls = []
+    
+    # Create a Google dork query based on the keyword
+    # Check if it looks like a business type + location query
+    if " in " in keyword.lower():
+        parts = keyword.lower().split(" in ")
+        business_type = parts[0].strip()
+        location = parts[1].strip()
+        
+        # Use the dork template
+        dork_query = f'"{business_type}" "{location}" ("contact" OR "email" OR "phone") site:.in'
+    else:
+        # Just use the keyword
+        dork_query = f'{keyword} ("contact" OR "email" OR "phone")'
     
     try:
         # Calculate how many API calls we need (Google CSE returns max 10 results per call)
@@ -370,7 +438,7 @@ def search_by_keyword(keyword, num_results=10):
             params = {
                 'key': GOOGLE_API_KEY,
                 'cx': GOOGLE_SEARCH_ENGINE_ID,
-                'q': keyword,
+                'q': dork_query,
                 'start': start_index,
                 'num': min(10, num_results - len(urls))
             }
@@ -411,13 +479,6 @@ def main():
     Enter URLs directly or provide search keywords to find relevant sites.
     """)
     
-    # Add Custom Search Engine ID input
-    with st.expander("API Configuration"):
-        global GOOGLE_SEARCH_ENGINE_ID
-        input_cse_id = st.text_input("Google Custom Search Engine ID:", value=GOOGLE_SEARCH_ENGINE_ID)
-        if input_cse_id and input_cse_id != GOOGLE_SEARCH_ENGINE_ID:
-            GOOGLE_SEARCH_ENGINE_ID = input_cse_id
-    
     tab1, tab2 = st.tabs(["URL Scraper", "Keyword Search"])
     
     with tab1:
@@ -436,10 +497,28 @@ def main():
             
     with tab2:
         st.subheader("Scrape by Keywords")
-        keyword = st.text_input("Enter search keyword:", placeholder="company name contact details")
+        keyword = st.text_input("Enter search keyword:", placeholder="salon in Mumbai")
+        
+        # Add location field to enhance search
+        location = st.text_input("Location (optional):", placeholder="Mumbai")
+        
+        # Add industry/category selection
+        industry_options = [
+            "Local Services/Small Businesses",
+            "Schools/Educational Institutes",
+            "Micro Influencers/Creators",
+            "Ad Agencies/Marketing Services",
+            "Editing Agencies/Creative Studios",
+            "Business Owners/Startups",
+            "Any Category"
+        ]
+        selected_industry = st.selectbox("Select Category:", industry_options)
+        
         num_results = st.slider("Number of search results to scrape:", 5, 50, 10)
         max_depth_keyword = st.slider("Crawl Depth for Search Results:", 0, 2, 0,
                                      help="How deep to crawl on each search result")
+        
+        include_maps = st.checkbox("Include Google Maps results", value=True)
         
         col1, col2 = st.columns(2)
         with col1:
@@ -519,9 +598,71 @@ def main():
     # Keyword search logic
     if keyword_search_button and keyword.strip():
         with st.spinner(f"Searching for '{keyword}' and scraping results..."):
+            # Combine keyword and location if both provided
+            if location and location.strip():
+                combined_keyword = f"{keyword} in {location}"
+            else:
+                combined_keyword = keyword
+            
+            # Get targeted URLs based on selected industry/category
+            st.info("Identifying targeted websites for your search...")
+            targeted_sites = []
+            
+            if selected_industry != "Any Category":
+                if "Local Services" in selected_industry:
+                    targeted_sites = [
+                        "justdial.com", "sulekha.com", "nearmetrade.com", 
+                        "clickindia.com", "yellowpages.in"
+                    ]
+                elif "Schools" in selected_industry:
+                    targeted_sites = [
+                        "icbse.com", "schoolmykids.com", "edustoke.com", 
+                        "indiastudychannel.com"
+                    ]
+                elif "Micro Influencers" in selected_industry:
+                    targeted_sites = [
+                        "instagram.com", "starngage.com", "influence.co"
+                    ]
+                elif "Ad Agencies" in selected_industry:
+                    targeted_sites = [
+                        "clutch.co", "sortlist.com", "goodfirms.co", 
+                        "upcity.com", "designrush.com"
+                    ]
+                elif "Editing Agencies" in selected_industry:
+                    targeted_sites = [
+                        "behance.net", "dribbble.com", "productionhub.com", 
+                        "fiverr.com"
+                    ]
+                elif "Business Owners" in selected_industry:
+                    targeted_sites = [
+                        "linkedin.com", "startupindia.gov.in", "angel.co", 
+                        "crunchbase.com", "yourstory.com"
+                    ]
+            
             # Get URLs from search results
-            st.info("Fetching search results...")
-            search_urls = search_by_keyword(keyword, num_results)
+            st.info("Fetching targeted search results...")
+            search_urls = []
+            
+            # 1. First, try targeted sites with specific dorks
+            if targeted_sites:
+                for site in targeted_sites[:3]:  # Limit to first 3 to avoid too many API calls
+                    site_dork = f'{combined_keyword} ("contact" OR "email" OR "phone") site:{site}'
+                    site_urls = search_by_keyword(site_dork, 5)  # Get 5 results per site
+                    search_urls.extend(site_urls)
+            
+            # 2. Get general search results
+            general_results_needed = max(5, num_results - len(search_urls))
+            general_urls = search_by_keyword(combined_keyword, general_results_needed)
+            search_urls.extend(general_urls)
+            
+            # 3. Add Google Maps results if requested
+            if include_maps and location.strip():
+                st.info("Fetching Google Maps results...")
+                maps_urls = get_google_maps_urls(keyword, location, 5)
+                search_urls.extend(maps_urls)
+            
+            # Remove duplicates and limit to requested number
+            search_urls = list(dict.fromkeys(search_urls))[:num_results]
             
             if search_urls:
                 st.success(f"Found {len(search_urls)} URLs. Starting to scrape...")
@@ -561,7 +702,8 @@ def main():
                                     st.session_state.contacts.extend(contacts)
                                 st.session_state.scanned_urls.add(url)
                                 
-                                # If not at max depth, collect links for next level
+                                
+# If not at max depth, collect links for next level
                                 if depth < max_depth_keyword:
                                     new_links = get_links_from_page(url, session)
                                     next_level_urls.extend(new_links)
@@ -593,16 +735,26 @@ def main():
         # Remove duplicates
         if not df.empty:
             df = df.drop_duplicates(subset=['Email', 'Mobile_no'], keep='first')
+            
+            # Filter out columns where all values are "NULL"
+            cols_to_drop = []
+            for col in df.columns:
+                if (df[col] == "NULL").all():
+                    cols_to_drop.append(col)
+            
+            # Drop the all-NULL columns
+            if cols_to_drop:
+                df = df.drop(columns=cols_to_drop)
         
         # Display metrics
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Contacts Found", len(df))
         with col2:
-            email_count = len(df[df['Email'] != "NULL"])
+            email_count = len(df[df['Email'] != "NULL"]) if 'Email' in df.columns else 0
             st.metric("Emails Found", email_count)
         with col3:
-            phone_count = len(df[df['Mobile_no'] != "NULL"])
+            phone_count = len(df[df['Mobile_no'] != "NULL"]) if 'Mobile_no' in df.columns else 0
             st.metric("Phone Numbers Found", phone_count)
         
         # Display data table
